@@ -437,6 +437,7 @@ namespace realsense2_camera
         //Safety Camera
         rs2::sensor* _safety_sensor;
         void setSafetySensorIfAvailable();
+        bool applySafetyTableParams();
         void publishSafetyServices();
 
 

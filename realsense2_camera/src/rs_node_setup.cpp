@@ -31,6 +31,11 @@ void BaseRealSenseNode::setup()
     setDynamicParams();
     startDiagnosticsUpdater();
     setAvailableSensors();
+    if (applySafetyTableParams())
+    {
+        ROS_WARN("Aborting setup - device is resetting to apply safety table changes");
+        return;
+    }
     SetBaseStream();
     setupFilters();
     setCallbackFunctions();

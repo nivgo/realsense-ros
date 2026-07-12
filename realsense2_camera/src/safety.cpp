@@ -13,6 +13,8 @@
 // limitations under the License.
 
 #include "../include/base_realsense_node.h"
+#include <safety_table_params.h>
+#include <atomic>
 
 using namespace realsense2_camera;
 using namespace rs2;
@@ -204,4 +206,95 @@ void BaseRealSenseNode::HardwareMonitorCommandSendService(const realsense2_camer
         res->result.clear();
         res->error_message = std::string("Error sending hardware monitor command: ") + e.what();
     }
+}
+
+bool BaseRealSenseNode::applySafetyTableParams()
+{
+    const bool height_set = (_safety_mount_height >= 0.0);
+    const bool cell_size_set = (_safety_occupancy_cell_size >= 0.0);
+    if (!height_set && !cell_size_set)
+        return false;
+    if (!_safety_sensor)
+    {
+        ROS_WARN("safety_camera.mount_height / occupancy_cell_size set but no safety sensor found - ignoring");
+        return false;
+    }
+
+    // The hardware reset below destroys and re-creates this node, so the
+    // retry guard must outlive it. Two cycles allow the normal
+    // write -> reset -> verify sequence and nothing more.
+    static std::atomic<int> s_write_cycles{0};
+
+    try
+    {
+        auto safety = _safety_sensor->as<rs2::safety_sensor>();
+
+        std::string sic = safety.get_safety_interface_config(RS2_CALIB_LOCATION_FLASH);
+        const bool sic_changed = safety_table_params::patchSafetyInterfaceConfig(
+            sic, _safety_mount_height, _safety_occupancy_cell_size);
+
+        std::string calib;
+        std::string preset0;
+        bool calib_changed = false;
+        bool presets_changed = false;
+        if (height_set)
+        {
+            calib = _dev.as<rs2::auto_calibrated_device>().get_calibration_config();
+            calib_changed = safety_table_params::patchCalibrationConfig(calib, _safety_mount_height);
+            // Presets are written as a batch, so preset 0 stands in for all 64.
+            preset0 = safety.get_safety_preset(0);
+            presets_changed = safety_table_params::patchSafetyPreset(preset0, _safety_mount_height);
+        }
+
+        if (!sic_changed && !calib_changed && !presets_changed)
+            return false; // flash already matches the requested values
+
+        if (s_write_cycles >= 2)
+        {
+            ROS_ERROR("Safety tables still differ from the requested parameters after writing."
+                      " Not retrying - check units and firmware acceptance.");
+            return false;
+        }
+        ++s_write_cycles;
+
+        safety.set_option(RS2_OPTION_SAFETY_MODE, static_cast<float>(RS2_SAFETY_MODE_SERVICE));
+        try
+        {
+            if (sic_changed)
+            {
+                // The interface config only takes effect after a reset, and the
+                // remaining tables are written on the post-reset pass.
+                safety.set_safety_interface_config(sic);
+                ROS_WARN("Safety interface config updated - resetting device to apply");
+                hardwareResetRequest();
+                return true;
+            }
+            if (presets_changed)
+            {
+                safety.set_safety_preset(0, preset0);
+                for (int i = 1; i < 64; ++i)
+                {
+                    std::string p = safety.get_safety_preset(i);
+                    if (safety_table_params::patchSafetyPreset(p, _safety_mount_height))
+                        safety.set_safety_preset(i, p);
+                }
+            }
+            if (calib_changed)
+                _dev.as<rs2::auto_calibrated_device>().set_calibration_config(calib);
+        }
+        catch (...)
+        {
+            safety.set_option(RS2_OPTION_SAFETY_MODE, static_cast<float>(RS2_SAFETY_MODE_RUN));
+            throw;
+        }
+        safety.set_option(RS2_OPTION_SAFETY_MODE, static_cast<float>(RS2_SAFETY_MODE_RUN));
+        ROS_INFO("Safety table parameters applied");
+    }
+    catch (const std::exception& e)
+    {
+        // Best effort by design: the driver keeps streaming with the values
+        // already in flash.
+        ROS_ERROR_STREAM("Failed to apply safety table parameters: " << e.what());
+    }
+    return false;
 }
