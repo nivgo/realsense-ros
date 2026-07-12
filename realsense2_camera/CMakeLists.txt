@@ -109,6 +109,7 @@ find_package(builtin_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(realsense2_camera_msgs REQUIRED)
+find_package(nlohmann_json REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -293,6 +294,7 @@ set(dependencies
   rclcpp
   rclcpp_components
   realsense2_camera_msgs
+  nlohmann_json
   std_srvs
   std_msgs
   sensor_msgs
@@ -308,6 +310,7 @@ set (targets
   rclcpp::rclcpp
   ${RCLCPP_COMPONENT_TARGET}
   ${realsense2_camera_msgs_TARGETS}
+  nlohmann_json::nlohmann_json
   ${std_srvs_TARGETS}
   ${std_msgs_TARGETS}
   ${SENSOR_MSGS_TARGET}
@@ -451,6 +454,7 @@ if(BUILD_TESTING)
        target_link_libraries(${_test_name}
           std_srvs::std_srvs__rosidl_typesupport_cpp
           std_msgs::std_msgs__rosidl_typesupport_cpp
+          nlohmann_json::nlohmann_json
        )
        #target_link_libraries(${_test_name} name_of_local_library)
     endforeach()
