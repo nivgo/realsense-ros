@@ -351,6 +351,8 @@ namespace realsense2_camera
         float _depth_scale_meters;
         float _clipping_distance;
         float _occupancy_max_range;
+        double _safety_mount_height;
+        double _safety_occupancy_cell_size;
 
         double _linear_accel_cov;
         double _angular_velocity_cov;

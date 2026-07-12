@@ -96,6 +96,8 @@ configurable_parameters = [{'name': 'camera_name',                  'default': '
                            {'name': 'decimation_filter.filter_magnitude', 'default': '2', 'description': 'decimation filter magnitude'},
                            {'name': 'enable_safety',                'default': 'false', 'description': "'enable safety stream'"},
                            {'name': 'safety_camera.safety_mode',    'default': '0', 'description': '[int] 0-Run, 1-Standby, 2-Service'},
+                           {'name': 'safety_camera.mount_height',   'default': '-1.', 'description': "'camera mount height above floor in meters; negative leaves device flash untouched'"},
+                           {'name': 'safety_camera.occupancy_cell_size', 'default': '-1.', 'description': "'occupancy grid cell size in meters; negative leaves device flash untouched'"},
                            {'name': 'enable_labeled_point_cloud',   'default': 'false', 'description': "'enable labeled point cloud stream'"},
                            {'name': 'depth_mapping_camera.labeled_point_cloud_profile', 'default': '0,0,0', 'description': "'Label PointCloud stream profile'"},
                            {'name': 'enable_occupancy',             'default': 'false', 'description': "'enable occupancy stream'"},

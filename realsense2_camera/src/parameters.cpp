@@ -70,6 +70,14 @@ void BaseRealSenseNode::getParameters()
     _occupancy_max_range = static_cast<float>(_parameters->setParam<double>(param_name, 2.5));
     _parameters_names.push_back(param_name);
 
+    param_name = std::string("safety_camera.mount_height");
+    _safety_mount_height = _parameters->setParam<double>(param_name, -1.0);
+    _parameters_names.push_back(param_name);
+
+    param_name = std::string("safety_camera.occupancy_cell_size");
+    _safety_occupancy_cell_size = _parameters->setParam<double>(param_name, -1.0);
+    _parameters_names.push_back(param_name);
+
     param_name = std::string("linear_accel_cov");
     _linear_accel_cov = _parameters->setParam<double>(param_name, 0.01);
     _parameters_names.push_back(param_name);
