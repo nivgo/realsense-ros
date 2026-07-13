@@ -101,6 +101,38 @@ TEST(SafetyTableParams, ThrowsOnMissingStructure)
     EXPECT_THROW(patchCalibrationConfig(bad, 0.30), nlohmann::json::exception);
 }
 
+TEST(SafetyTableParams, NegativeHeightSkipsCalibrationAndPresetParsing)
+{
+    // A negative height means "skip this field" and both helpers bail out
+    // before parsing, so even a bare "{}" input is accepted unchanged.
+    std::string bare = "{}";
+    EXPECT_FALSE(patchCalibrationConfig(bare, -1.0));
+    EXPECT_EQ(bare, "{}");
+
+    std::string preset_bare = "{}";
+    EXPECT_FALSE(patchSafetyPreset(preset_bare, -1.0));
+    EXPECT_EQ(preset_bare, "{}");
+
+    std::string c = CALIB_BARE;
+    EXPECT_FALSE(patchCalibrationConfig(c, -1.0));
+    EXPECT_EQ(c, CALIB_BARE);
+
+    std::string p = PRESET_WRAPPED;
+    EXPECT_FALSE(patchSafetyPreset(p, -1.0));
+    EXPECT_EQ(p, PRESET_WRAPPED);
+}
+
+TEST(SafetyTableParams, ThrowsWhenCellSizeRequestedButMissing)
+{
+    // Height skipped (negative), cell size requested (>= 0), but the table
+    // has no occupancy_grid_params at all.
+    std::string j = SIC_BARE;
+    nlohmann::json parsed = nlohmann::json::parse(j);
+    parsed.erase("occupancy_grid_params");
+    std::string without_grid_params = parsed.dump();
+    EXPECT_THROW(patchSafetyInterfaceConfig(without_grid_params, -1.0, 0.05), std::runtime_error);
+}
+
 int main(int argc, char** argv)
 {
     testing::InitGoogleTest(&argc, argv);

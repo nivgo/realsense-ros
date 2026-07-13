@@ -14,7 +14,9 @@
 
 #include "../include/base_realsense_node.h"
 #include <safety_table_params.h>
-#include <atomic>
+#include <map>
+#include <mutex>
+#include <string>
 
 using namespace realsense2_camera;
 using namespace rs2;
@@ -221,13 +223,20 @@ bool BaseRealSenseNode::applySafetyTableParams()
     }
 
     // The hardware reset below destroys and re-creates this node, so the
-    // retry guard must outlive it. Two cycles allow the normal
-    // write -> reset -> verify sequence and nothing more.
-    static std::atomic<int> s_write_cycles{0};
+    // retry guard must outlive it and must be keyed per device serial: a
+    // composed process can host several safety cameras, and a plain static
+    // counter would let two cameras drain each other's retry budget. Two
+    // cycles per serial allow the normal write -> reset -> verify sequence
+    // and nothing more. The cycle is consumed BEFORE the write attempt on
+    // purpose - it bounds hardware resets even when the write itself fails
+    // partway through, not just when it fully succeeds.
+    static std::mutex s_write_cycles_mutex;
+    static std::map<std::string, int> s_write_cycles; // per-serial, survives node re-creation
 
     try
     {
         auto safety = _safety_sensor->as<rs2::safety_sensor>();
+        const std::string serial_no = _dev.get_info(RS2_CAMERA_INFO_SERIAL_NUMBER);
 
         std::string sic = safety.get_safety_interface_config(RS2_CALIB_LOCATION_FLASH);
         const bool sic_changed = safety_table_params::patchSafetyInterfaceConfig(
@@ -249,13 +258,17 @@ bool BaseRealSenseNode::applySafetyTableParams()
         if (!sic_changed && !calib_changed && !presets_changed)
             return false; // flash already matches the requested values
 
-        if (s_write_cycles >= 2)
         {
-            ROS_ERROR("Safety tables still differ from the requested parameters after writing."
-                      " Not retrying - check units and firmware acceptance.");
-            return false;
+            std::lock_guard<std::mutex> lock(s_write_cycles_mutex);
+            int& cycles = s_write_cycles[serial_no];
+            if (cycles >= 2)
+            {
+                ROS_ERROR("Safety tables still differ from the requested parameters after writing."
+                          " Not retrying - check units and firmware acceptance.");
+                return false;
+            }
+            ++cycles;
         }
-        ++s_write_cycles;
 
         safety.set_option(RS2_OPTION_SAFETY_MODE, static_cast<float>(RS2_SAFETY_MODE_SERVICE));
         try
@@ -271,13 +284,17 @@ bool BaseRealSenseNode::applySafetyTableParams()
             }
             if (presets_changed)
             {
-                safety.set_safety_preset(0, preset0);
+                // Write preset 0 (the change sentinel) LAST. If the batch fails
+                // partway through presets 1..63, preset 0 stays stale, so the
+                // next launch's read-back of preset 0 still shows a mismatch
+                // and the whole batch is retried instead of being skipped.
                 for (int i = 1; i < 64; ++i)
                 {
                     std::string p = safety.get_safety_preset(i);
                     if (safety_table_params::patchSafetyPreset(p, _safety_mount_height))
                         safety.set_safety_preset(i, p);
                 }
+                safety.set_safety_preset(0, preset0);
             }
             if (calib_changed)
                 _dev.as<rs2::auto_calibrated_device>().set_calibration_config(calib);
