@@ -14,9 +14,11 @@
 
 #include "../include/base_realsense_node.h"
 #include <safety_table_params.h>
+#include <chrono>
 #include <map>
 #include <mutex>
 #include <string>
+#include <thread>
 
 using namespace realsense2_camera;
 using namespace rs2;
@@ -210,6 +212,16 @@ void BaseRealSenseNode::HardwareMonitorCommandSendService(const realsense2_camer
     }
 }
 
+// Seconds to let the safety firmware finish booting after a provisioning
+// hardware reset. The device re-enumerates a few seconds before its safety
+// module is ready, and streams started in that window fail on internal
+// safety-config reads. A readiness poll is not reliable here - table reads
+// already succeed while the failing subsystem is still booting - so this
+// mirrors the fixed 10 s wait the provisioning tooling uses after a reset.
+// A more complete fix would be retrying the sensor start in the driver
+// itself; this is the simpler approach for now.
+constexpr int SAFETY_FW_SETTLE_SEC = 8;
+
 bool BaseRealSenseNode::applySafetyTableParams()
 {
     const bool height_set = (_safety_mount_height >= 0.0);
@@ -238,6 +250,21 @@ bool BaseRealSenseNode::applySafetyTableParams()
         auto safety = _safety_sensor->as<rs2::safety_sensor>();
         const std::string serial_no = _dev.get_info(RS2_CAMERA_INFO_SERIAL_NUMBER);
 
+        // A device this process already provisioned and reset needs time to
+        // finish booting before the tables are touched again and the streams
+        // start (see SAFETY_FW_SETTLE_SEC above).
+        bool provisioned_earlier = false;
+        {
+            std::lock_guard<std::mutex> lock(s_write_cycles_mutex);
+            const auto it = s_write_cycles.find(serial_no);
+            provisioned_earlier = (it != s_write_cycles.end() && it->second > 0);
+        }
+        if (provisioned_earlier)
+        {
+            ROS_INFO("Waiting for the safety firmware to settle after the provisioning reset");
+            std::this_thread::sleep_for(std::chrono::seconds(SAFETY_FW_SETTLE_SEC));
+        }
+
         std::string sic = safety.get_safety_interface_config(RS2_CALIB_LOCATION_FLASH);
         const bool sic_changed = safety_table_params::patchSafetyInterfaceConfig(
             sic, _safety_mount_height, _safety_occupancy_cell_size);
@@ -256,7 +283,14 @@ bool BaseRealSenseNode::applySafetyTableParams()
         }
 
         if (!sic_changed && !calib_changed && !presets_changed)
+        {
+            // Provisioning converged (or was never needed) - clear the cycle
+            // budget so later reconnects of this device neither wait for a
+            // settle nor inherit a drained retry budget.
+            std::lock_guard<std::mutex> lock(s_write_cycles_mutex);
+            s_write_cycles[serial_no] = 0;
             return false; // flash already matches the requested values
+        }
 
         {
             std::lock_guard<std::mutex> lock(s_write_cycles_mutex);
