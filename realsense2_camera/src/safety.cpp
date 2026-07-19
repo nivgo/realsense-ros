@@ -223,6 +223,50 @@ void BaseRealSenseNode::HardwareMonitorCommandSendService(const realsense2_camer
 // itself; this is the simpler approach for now.
 constexpr int SAFETY_FW_SETTLE_SEC = 8;
 
+namespace
+{
+// Restores the safety mode that was active before provisioning entered
+// SERVICE mode. A device left in SERVICE mode has its safety function
+// disabled, so the restore must also run when a table write throws; it
+// lives in a destructor and retries once before giving up loudly.
+// Restoring the PRIOR mode rather than a hardcoded RUN keeps a
+// user-requested safety_camera.safety_mode - already applied to the
+// device earlier in setup() - intact.
+class SafetyModeRestorer
+{
+public:
+    SafetyModeRestorer(rs2::safety_sensor& sensor, float mode_to_restore, rclcpp::Logger logger)
+        : _sensor(sensor), _mode(mode_to_restore), _logger(logger) {}
+    SafetyModeRestorer(const SafetyModeRestorer&) = delete;
+    SafetyModeRestorer& operator=(const SafetyModeRestorer&) = delete;
+    void dismiss() { _armed = false; }
+    ~SafetyModeRestorer()
+    {
+        if (!_armed)
+            return;
+        for (int attempt = 1; attempt <= 2; ++attempt)
+        {
+            try
+            {
+                _sensor.set_option(RS2_OPTION_SAFETY_MODE, _mode);
+                return;
+            }
+            catch (const std::exception& e)
+            {
+                ROS_ERROR_STREAM("Failed to restore the safety mode after a table write (attempt "
+                                 << attempt << "/2) - THE DEVICE MAY BE LEFT IN SERVICE MODE"
+                                    " WITH ITS SAFETY FUNCTION DISABLED: " << e.what());
+            }
+        }
+    }
+private:
+    rs2::safety_sensor& _sensor;
+    float _mode;
+    rclcpp::Logger _logger;
+    bool _armed = true;
+};
+}  // namespace
+
 bool BaseRealSenseNode::applySafetyTableParams()
 {
     const bool height_set = (_safety_mount_height >= 0.0);
@@ -347,40 +391,36 @@ bool BaseRealSenseNode::applySafetyTableParams()
             ++cycles;
         }
 
+        const float prior_mode = safety.get_option(RS2_OPTION_SAFETY_MODE);
         safety.set_option(RS2_OPTION_SAFETY_MODE, static_cast<float>(RS2_SAFETY_MODE_SERVICE));
-        try
+        SafetyModeRestorer mode_restorer(safety, prior_mode, _logger);
+        if (sic_changed)
         {
-            if (sic_changed)
-            {
-                // The interface config only takes effect after a reset, and the
-                // remaining tables are written on the post-reset pass.
-                safety.set_safety_interface_config(sic);
-                ROS_WARN("Safety interface config updated - resetting device to apply");
-                hardwareResetRequest();
-                return true;
-            }
-            if (presets_changed)
-            {
-                // Write preset 0 (the change sentinel) LAST. If the batch fails
-                // partway through presets 1..63, preset 0 stays stale, so the
-                // next launch's read-back of preset 0 still shows a mismatch
-                // and the whole batch is retried instead of being skipped.
-                for (int i = 1; i < 64; ++i)
-                {
-                    if (preset_write_needed[i])
-                        safety.set_safety_preset(i, presets[i]);
-                }
-                safety.set_safety_preset(0, presets[0]);
-            }
-            if (calib_changed)
-                _dev.as<rs2::auto_calibrated_device>().set_calibration_config(calib);
+            // The interface config only takes effect after a reset, and the
+            // remaining tables are written on the post-reset pass. The reset
+            // reboots the device into its flash-configured mode, so restoring
+            // the pre-service mode on this path is pointless.
+            safety.set_safety_interface_config(sic);
+            ROS_WARN("Safety interface config updated - resetting device to apply");
+            mode_restorer.dismiss();
+            hardwareResetRequest();
+            return true;
         }
-        catch (...)
+        if (presets_changed)
         {
-            safety.set_option(RS2_OPTION_SAFETY_MODE, static_cast<float>(RS2_SAFETY_MODE_RUN));
-            throw;
+            // Write preset 0 (the change sentinel) LAST. If the batch fails
+            // partway through presets 1..63, preset 0 stays stale, so the
+            // next launch's read-back of preset 0 still shows a mismatch
+            // and the whole batch is retried instead of being skipped.
+            for (int i = 1; i < 64; ++i)
+            {
+                if (preset_write_needed[i])
+                    safety.set_safety_preset(i, presets[i]);
+            }
+            safety.set_safety_preset(0, presets[0]);
         }
-        safety.set_option(RS2_OPTION_SAFETY_MODE, static_cast<float>(RS2_SAFETY_MODE_RUN));
+        if (calib_changed)
+            _dev.as<rs2::auto_calibrated_device>().set_calibration_config(calib);
         ROS_INFO("Safety table parameters applied");
     }
     catch (const std::exception& e)
