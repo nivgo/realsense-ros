@@ -372,7 +372,11 @@ bool BaseRealSenseNode::applySafetyTableParams()
             // all-or-nothing, so a structurally invalid preset anywhere in
             // the bank aborts here - before any write could leave the flash
             // presets split across two mount heights. This dry run performs
-            // no writes, which is why it sits before the budget check.
+            // no writes, which is why it sits before the budget check. It
+            // deliberately also runs when sic_changed (whose branch below
+            // never uses the result): a broken preset bank then aborts the
+            // provisioning BEFORE the interface config is written, instead
+            // of surfacing one reset later with the SIC already in flash.
             presets.resize(64);
             for (int i = 0; i < 64; ++i)
                 presets[i] = safety.get_safety_preset(i);
@@ -393,8 +397,11 @@ bool BaseRealSenseNode::applySafetyTableParams()
         }
 
         const float prior_mode = safety.get_option(RS2_OPTION_SAFETY_MODE);
-        safety.set_option(RS2_OPTION_SAFETY_MODE, static_cast<float>(RS2_SAFETY_MODE_SERVICE));
+        // Armed BEFORE entering service mode so even a failure in the switch
+        // itself has a restore path; restoring a mode that was never left is
+        // a harmless no-op write.
         SafetyModeRestorer mode_restorer(safety, prior_mode, _logger);
+        safety.set_option(RS2_OPTION_SAFETY_MODE, static_cast<float>(RS2_SAFETY_MODE_SERVICE));
         if (sic_changed)
         {
             // The interface config only takes effect after a reset, and the
@@ -418,7 +425,8 @@ bool BaseRealSenseNode::applySafetyTableParams()
                 if (preset_write_needed[i])
                     safety.set_safety_preset(i, presets[i]);
             }
-            safety.set_safety_preset(0, presets[0]);
+            if (preset_write_needed[0])
+                safety.set_safety_preset(0, presets[0]);
         }
         if (calib_changed)
             _dev.as<rs2::auto_calibrated_device>().set_calibration_config(calib);
