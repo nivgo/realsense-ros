@@ -19,6 +19,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace realsense2_camera;
 using namespace rs2;
@@ -317,6 +318,23 @@ bool BaseRealSenseNode::applySafetyTableParams()
             return false; // flash already matches the requested values
         }
 
+        std::vector<std::string> presets;
+        std::vector<bool> preset_write_needed;
+        if (presets_changed)
+        {
+            // Read and patch the WHOLE preset bank before consuming a write
+            // cycle or entering service mode: patchAllSafetyPresets is
+            // all-or-nothing, so a structurally invalid preset anywhere in
+            // the bank aborts here - before any write could leave the flash
+            // presets split across two mount heights. This dry run performs
+            // no writes, which is why it sits before the budget check.
+            presets.resize(64);
+            for (int i = 0; i < 64; ++i)
+                presets[i] = safety.get_safety_preset(i);
+            preset_write_needed =
+                safety_table_params::patchAllSafetyPresets(presets, _safety_mount_height);
+        }
+
         {
             std::lock_guard<std::mutex> lock(s_write_cycles_mutex);
             int& cycles = s_write_cycles[serial_no];
@@ -349,11 +367,10 @@ bool BaseRealSenseNode::applySafetyTableParams()
                 // and the whole batch is retried instead of being skipped.
                 for (int i = 1; i < 64; ++i)
                 {
-                    std::string p = safety.get_safety_preset(i);
-                    if (safety_table_params::patchSafetyPreset(p, _safety_mount_height))
-                        safety.set_safety_preset(i, p);
+                    if (preset_write_needed[i])
+                        safety.set_safety_preset(i, presets[i]);
                 }
-                safety.set_safety_preset(0, preset0);
+                safety.set_safety_preset(0, presets[0]);
             }
             if (calib_changed)
                 _dev.as<rs2::auto_calibrated_device>().set_calibration_config(calib);
