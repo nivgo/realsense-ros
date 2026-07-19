@@ -304,7 +304,8 @@ bool BaseRealSenseNode::applySafetyTableParams()
         return false;
     }
 
-    // The hardware reset below destroys and re-creates this node, so the
+    // The provisioning hardware reset (issued by the node factory after this
+    // function returns true) destroys and re-creates this node, so the
     // retry guard must outlive it and must be keyed per device serial: a
     // composed process can host several safety cameras, and a plain static
     // counter would let two cameras drain each other's retry budget. Two
@@ -401,9 +402,9 @@ bool BaseRealSenseNode::applySafetyTableParams()
             // reboots the device into its flash-configured mode, so restoring
             // the pre-service mode on this path is pointless.
             safety.set_safety_interface_config(sic);
-            ROS_WARN("Safety interface config updated - resetting device to apply");
+            ROS_WARN("Safety interface config updated - the node factory will reset the device to apply");
             mode_restorer.dismiss();
-            hardwareResetRequest();
+            _provisioning_reset_pending = true;
             return true;
         }
         if (presets_changed)

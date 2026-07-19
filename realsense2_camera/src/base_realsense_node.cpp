@@ -108,6 +108,7 @@ BaseRealSenseNode::BaseRealSenseNode(RosNodeBase& node,
     _safety_mount_height(-1.0),
     _safety_occupancy_cell_size(-1.0),
     _safety_allow_table_write(false),
+    _provisioning_reset_pending(false),
     _linear_accel_cov(0),
     _angular_velocity_cov(0),
     _hold_back_imu_for_frames(false),
@@ -182,6 +183,11 @@ void BaseRealSenseNode::publishTopics()
 {
     getParameters();
     setup();
+    if (_provisioning_reset_pending)
+    {
+        ROS_WARN("RealSense Node startup deferred - the device will reset to apply safety table changes");
+        return;
+    }
     ROS_INFO_STREAM("RealSense Node Is Up!");
 }
 

@@ -459,6 +459,28 @@ void RealSenseNodeFactory::startDevice()
     {
         _realSenseNode = std::unique_ptr<BaseRealSenseNode>(new BaseRealSenseNode(*this, _device, _parameters, this->get_node_options().use_intra_process_comms()));
         _realSenseNode->publishTopics();
+        if (_realSenseNode->isProvisioningResetPending())
+        {
+            // Issued here, after publishTopics() has fully unwound, so the
+            // removal event this reset triggers cannot destroy the node
+            // while its own setup() is still running on this thread. The
+            // device-watcher will re-create the node once the device
+            // re-enumerates, which re-runs the safety table verification.
+            ROS_WARN("Resetting device to apply safety table changes");
+            try
+            {
+                _device.hardware_reset();
+            }
+            catch (const std::exception& e)
+            {
+                // Must not propagate: on the reconnect path this runs inside
+                // librealsense's devices-changed callback. The interface
+                // config is already in flash; a relaunch or power cycle
+                // completes the provisioning.
+                ROS_ERROR_STREAM("Failed to reset the device for safety table provisioning: "
+                                 << e.what() << " - relaunch or power-cycle the camera to complete it");
+            }
+        }
     }
     catch(const rs2::backend_error& e)
     {

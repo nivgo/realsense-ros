@@ -33,7 +33,7 @@ void BaseRealSenseNode::setup()
     setAvailableSensors();
     if (applySafetyTableParams())
     {
-        ROS_WARN("Aborting setup - device is resetting to apply safety table changes");
+        ROS_WARN("Aborting setup - a device reset will be issued to apply safety table changes");
         return;
     }
     SetBaseStream();

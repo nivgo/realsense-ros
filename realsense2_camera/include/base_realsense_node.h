@@ -140,6 +140,14 @@ namespace realsense2_camera
         ~BaseRealSenseNode();
         void publishTopics();
 
+        // True when applySafetyTableParams() wrote the safety interface
+        // config and the device needs a hardware reset to apply it. The
+        // reset is issued by the owning node factory AFTER publishTopics()
+        // has fully unwound: issuing it from inside setup() would let the
+        // device-removal callback destroy this node on the watcher thread
+        // while its own setup() is still on another thread's stack.
+        bool isProvisioningResetPending() const { return _provisioning_reset_pending; }
+
     public:
         using TriggeredCalibration = realsense2_camera_msgs::action::TriggeredCalibration;
         using GoalHandleTriggeredCalibration = rclcpp_action::ServerGoalHandle<TriggeredCalibration>;
@@ -354,6 +362,7 @@ namespace realsense2_camera
         double _safety_mount_height;
         double _safety_occupancy_cell_size;
         bool _safety_allow_table_write;
+        bool _provisioning_reset_pending;
 
         double _linear_accel_cov;
         double _angular_velocity_cov;
