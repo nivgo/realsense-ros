@@ -78,6 +78,10 @@ void BaseRealSenseNode::getParameters()
     _safety_occupancy_cell_size = _parameters->setParam<double>(param_name, -1.0);
     _parameters_names.push_back(param_name);
 
+    param_name = std::string("safety_camera.allow_table_write");
+    _safety_allow_table_write = _parameters->setParam<bool>(param_name, false);
+    _parameters_names.push_back(param_name);
+
     param_name = std::string("linear_accel_cov");
     _linear_accel_cov = _parameters->setParam<double>(param_name, 0.01);
     _parameters_names.push_back(param_name);

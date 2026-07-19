@@ -353,6 +353,7 @@ namespace realsense2_camera
         float _occupancy_max_range;
         double _safety_mount_height;
         double _safety_occupancy_cell_size;
+        bool _safety_allow_table_write;
 
         double _linear_accel_cov;
         double _angular_velocity_cov;

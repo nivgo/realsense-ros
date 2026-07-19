@@ -228,6 +228,31 @@ bool BaseRealSenseNode::applySafetyTableParams()
     const bool cell_size_set = (_safety_occupancy_cell_size >= 0.0);
     if (!height_set && !cell_size_set)
         return false;
+    if (!_safety_allow_table_write)
+    {
+        ROS_WARN("safety_camera.mount_height / occupancy_cell_size set but"
+                 " safety_camera.allow_table_write is false - device flash left untouched");
+        return false;
+    }
+    // Reject configuration mistakes (typically a millimeters/meters mix-up)
+    // before any device I/O: firmware may accept an absurd value, and the
+    // matching read-back would then report the bad provisioning as success.
+    if (height_set && !safety_table_params::mountHeightInRange(_safety_mount_height))
+    {
+        ROS_ERROR_STREAM("safety_camera.mount_height " << _safety_mount_height
+                         << " is outside [" << safety_table_params::MOUNT_HEIGHT_MIN_M
+                         << ", " << safety_table_params::MOUNT_HEIGHT_MAX_M
+                         << "] m - no safety table will be written");
+        return false;
+    }
+    if (cell_size_set && !safety_table_params::cellSizeInRange(_safety_occupancy_cell_size))
+    {
+        ROS_ERROR_STREAM("safety_camera.occupancy_cell_size " << _safety_occupancy_cell_size
+                         << " is outside [" << safety_table_params::CELL_SIZE_MIN_M
+                         << ", " << safety_table_params::CELL_SIZE_MAX_M
+                         << "] m - no safety table will be written");
+        return false;
+    }
     if (!_safety_sensor)
     {
         ROS_WARN("safety_camera.mount_height / occupancy_cell_size set but no safety sensor found - ignoring");
