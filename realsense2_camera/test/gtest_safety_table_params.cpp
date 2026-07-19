@@ -122,6 +122,67 @@ TEST(SafetyTableParams, NegativeHeightSkipsCalibrationAndPresetParsing)
     EXPECT_EQ(p, PRESET_WRAPPED);
 }
 
+TEST(SafetyTableParams, MountHeightRange)
+{
+    // Physical bounds for an AMR-mounted camera; values outside them are
+    // configuration mistakes (e.g. millimeters passed instead of meters).
+    EXPECT_TRUE(mountHeightInRange(MOUNT_HEIGHT_MIN_M));
+    EXPECT_TRUE(mountHeightInRange(0.247));
+    EXPECT_TRUE(mountHeightInRange(MOUNT_HEIGHT_MAX_M));
+    EXPECT_FALSE(mountHeightInRange(MOUNT_HEIGHT_MAX_M + 0.1));
+    EXPECT_FALSE(mountHeightInRange(1000.0)); // mm passed as m
+    EXPECT_FALSE(mountHeightInRange(-0.1));   // negative means unset, never "in range"
+}
+
+TEST(SafetyTableParams, CellSizeRange)
+{
+    // Firmware accepts grid cell edges of 10..500 mm; zero would provision
+    // a degenerate grid and must never reach flash.
+    EXPECT_TRUE(cellSizeInRange(CELL_SIZE_MIN_M));
+    EXPECT_TRUE(cellSizeInRange(0.07));
+    EXPECT_TRUE(cellSizeInRange(CELL_SIZE_MAX_M));
+    EXPECT_FALSE(cellSizeInRange(0.0));
+    EXPECT_FALSE(cellSizeInRange(CELL_SIZE_MIN_M - 1e-3));
+    EXPECT_FALSE(cellSizeInRange(CELL_SIZE_MAX_M + 1e-3));
+    EXPECT_FALSE(cellSizeInRange(70.0)); // mm passed as m
+}
+
+TEST(SafetyTableParams, PatchAllPresetsAllOrNothing)
+{
+    // One structurally invalid preset anywhere in the batch must abort the
+    // whole patch BEFORE any entry is modified - a partial batch would leave
+    // the flash preset bank split across two mount heights.
+    std::vector<std::string> presets = {PRESET_WRAPPED, "{}", PRESET_WRAPPED};
+    const std::vector<std::string> before = presets;
+    EXPECT_THROW(patchAllSafetyPresets(presets, 0.30), std::runtime_error);
+    EXPECT_EQ(presets, before); // nothing modified, index 0 included
+}
+
+TEST(SafetyTableParams, PatchAllPresetsFlagsChanged)
+{
+    std::string already_at_target = PRESET_WRAPPED;
+    ASSERT_TRUE(patchSafetyPreset(already_at_target, 0.30));
+
+    std::vector<std::string> presets = {PRESET_WRAPPED, already_at_target};
+    const std::vector<bool> changed = patchAllSafetyPresets(presets, 0.30);
+    ASSERT_EQ(changed.size(), 2u);
+    EXPECT_TRUE(changed[0]);
+    EXPECT_FALSE(changed[1]);
+    auto parsed = nlohmann::json::parse(presets[0]);
+    EXPECT_NEAR(parsed["safety_preset"]["platform_config"]["transformation_link"]
+                      ["translation"][2].get<double>(), 0.30, 1e-9);
+    EXPECT_EQ(presets[1], already_at_target); // no-op entry untouched
+}
+
+TEST(SafetyTableParams, PatchAllPresetsNegativeHeightIsNoOp)
+{
+    std::vector<std::string> presets = {PRESET_WRAPPED, "{}"};
+    const std::vector<std::string> before = presets;
+    const std::vector<bool> changed = patchAllSafetyPresets(presets, -1.0);
+    EXPECT_EQ(changed, std::vector<bool>(2, false));
+    EXPECT_EQ(presets, before);
+}
+
 TEST(SafetyTableParams, ThrowsWhenCellSizeRequestedButMissing)
 {
     // Height skipped (negative), cell size requested (>= 0), but the table
