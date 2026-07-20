@@ -78,6 +78,14 @@ void BaseRealSenseNode::getParameters()
     _safety_occupancy_cell_size = _parameters->setParam<double>(param_name, -1.0);
     _parameters_names.push_back(param_name);
 
+    param_name = std::string("safety_camera.robot_height");
+    _safety_robot_height = _parameters->setParam<double>(param_name, -1.0);
+    _parameters_names.push_back(param_name);
+
+    param_name = std::string("safety_camera.rotation");
+    _safety_rotation = _parameters->setParam<std::string>(param_name, "");
+    _parameters_names.push_back(param_name);
+
     param_name = std::string("safety_camera.allow_table_write");
     _safety_allow_table_write = _parameters->setParam<bool>(param_name, false);
     _parameters_names.push_back(param_name);

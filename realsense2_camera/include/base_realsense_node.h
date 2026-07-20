@@ -361,6 +361,8 @@ namespace realsense2_camera
         float _occupancy_max_range;
         double _safety_mount_height;
         double _safety_occupancy_cell_size;
+        double _safety_robot_height;
+        std::string _safety_rotation;
         bool _safety_allow_table_write;
         bool _provisioning_reset_pending;
 

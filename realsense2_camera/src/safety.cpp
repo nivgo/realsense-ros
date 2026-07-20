@@ -269,40 +269,73 @@ private:
 
 bool BaseRealSenseNode::applySafetyTableParams()
 {
+    namespace stp = safety_table_params;
+
     const bool height_set = (_safety_mount_height >= 0.0);
     const bool cell_size_set = (_safety_occupancy_cell_size >= 0.0);
-    if (!height_set && !cell_size_set)
+    const bool robot_height_set = (_safety_robot_height >= 0.0);
+    const bool rotation_set = !_safety_rotation.empty();
+    if (!height_set && !cell_size_set && !robot_height_set && !rotation_set)
         return false;
     if (!_safety_allow_table_write)
     {
-        ROS_WARN("safety_camera.mount_height / occupancy_cell_size set but"
-                 " safety_camera.allow_table_write is false - device flash left untouched");
+        ROS_WARN("safety_camera table parameters were set but safety_camera.allow_table_write"
+                 " is false - device flash left untouched");
         return false;
     }
-    // Reject configuration mistakes (typically a millimeters/meters mix-up)
-    // before any device I/O: firmware may accept an absurd value, and the
-    // matching read-back would then report the bad provisioning as success.
-    if (height_set && !safety_table_params::mountHeightInRange(_safety_mount_height))
+    // Reject configuration mistakes (typically a millimeters/meters mix-up, or
+    // a matrix that is not a rotation) before any device I/O: firmware may
+    // accept an absurd value, and the matching read-back would then report the
+    // bad provisioning as success.
+    if (height_set && !stp::mountHeightInRange(_safety_mount_height))
     {
         ROS_ERROR_STREAM("safety_camera.mount_height " << _safety_mount_height
-                         << " is outside [" << safety_table_params::MOUNT_HEIGHT_MIN_M
-                         << ", " << safety_table_params::MOUNT_HEIGHT_MAX_M
+                         << " is outside [" << stp::MOUNT_HEIGHT_MIN_M
+                         << ", " << stp::MOUNT_HEIGHT_MAX_M
                          << "] m - no safety table will be written");
         return false;
     }
-    if (cell_size_set && !safety_table_params::cellSizeInRange(_safety_occupancy_cell_size))
+    if (cell_size_set && !stp::cellSizeInRange(_safety_occupancy_cell_size))
     {
         ROS_ERROR_STREAM("safety_camera.occupancy_cell_size " << _safety_occupancy_cell_size
-                         << " is outside [" << safety_table_params::CELL_SIZE_MIN_M
-                         << ", " << safety_table_params::CELL_SIZE_MAX_M
+                         << " is outside [" << stp::CELL_SIZE_MIN_M
+                         << ", " << stp::CELL_SIZE_MAX_M
                          << "] m - no safety table will be written");
+        return false;
+    }
+    if (robot_height_set && !stp::robotHeightInRange(_safety_robot_height))
+    {
+        ROS_ERROR_STREAM("safety_camera.robot_height " << _safety_robot_height
+                         << " is outside [" << stp::ROBOT_HEIGHT_MIN_M
+                         << ", " << stp::ROBOT_HEIGHT_MAX_M
+                         << "] m - no safety table will be written");
+        return false;
+    }
+    if (rotation_set && !stp::rotationCsvValid(_safety_rotation))
+    {
+        ROS_ERROR_STREAM("safety_camera.rotation '" << _safety_rotation << "' is not a valid rotation"
+                         " (expected 9 comma-separated, row-major values of an orthonormal matrix with"
+                         " determinant +1) - no safety table will be written");
         return false;
     }
     if (!_safety_sensor)
     {
-        ROS_WARN("safety_camera.mount_height / occupancy_cell_size set but no safety sensor found - ignoring");
+        ROS_WARN("safety_camera table parameters were set but no safety sensor found - ignoring");
         return false;
     }
+
+    stp::SafetyTableEdits edits;
+    edits.mount_height_m = _safety_mount_height;
+    edits.cell_size_m = _safety_occupancy_cell_size;
+    edits.robot_height_m = _safety_robot_height;
+    edits.rotation_row_major = _safety_rotation;
+
+    // Which tables a launch touches depends on which fields were set: the
+    // calibration config and presets carry the camera pose (height + rotation),
+    // presets additionally carry the robot height, and the interface config
+    // carries the pose plus the occupancy cell size.
+    const bool calib_relevant = height_set || rotation_set;
+    const bool preset_relevant = height_set || robot_height_set || rotation_set;
 
     // The provisioning hardware reset (issued by the node factory after this
     // function returns true) destroys and re-creates this node, so the
@@ -337,20 +370,22 @@ bool BaseRealSenseNode::applySafetyTableParams()
         }
 
         std::string sic = safety.get_safety_interface_config(RS2_CALIB_LOCATION_FLASH);
-        const bool sic_changed = safety_table_params::patchSafetyInterfaceConfig(
-            sic, _safety_mount_height, _safety_occupancy_cell_size);
+        const bool sic_changed = stp::patchSafetyInterfaceConfig(sic, edits);
 
         std::string calib;
         std::string preset0;
         bool calib_changed = false;
         bool presets_changed = false;
-        if (height_set)
+        if (calib_relevant)
         {
             calib = _dev.as<rs2::auto_calibrated_device>().get_calibration_config();
-            calib_changed = safety_table_params::patchCalibrationConfig(calib, _safety_mount_height);
+            calib_changed = stp::patchCalibrationConfig(calib, edits);
+        }
+        if (preset_relevant)
+        {
             // Presets are written as a batch, so preset 0 stands in for all 64.
             preset0 = safety.get_safety_preset(0);
-            presets_changed = safety_table_params::patchSafetyPreset(preset0, _safety_mount_height);
+            presets_changed = stp::patchSafetyPreset(preset0, edits);
         }
 
         if (!sic_changed && !calib_changed && !presets_changed)
@@ -371,7 +406,7 @@ bool BaseRealSenseNode::applySafetyTableParams()
             // cycle or entering service mode: patchAllSafetyPresets is
             // all-or-nothing, so a structurally invalid preset anywhere in
             // the bank aborts here - before any write could leave the flash
-            // presets split across two mount heights. This dry run performs
+            // preset bank inconsistent across entries. This dry run performs
             // no writes, which is why it sits before the budget check. It
             // deliberately also runs when sic_changed (whose branch below
             // never uses the result): a broken preset bank then aborts the
@@ -380,8 +415,7 @@ bool BaseRealSenseNode::applySafetyTableParams()
             presets.resize(64);
             for (int i = 0; i < 64; ++i)
                 presets[i] = safety.get_safety_preset(i);
-            preset_write_needed =
-                safety_table_params::patchAllSafetyPresets(presets, _safety_mount_height);
+            preset_write_needed = stp::patchAllSafetyPresets(presets, edits);
         }
 
         {
