@@ -306,9 +306,9 @@ bool BaseRealSenseNode::applySafetyTableParams()
     if (robot_height_set && !stp::robotHeightInRange(_safety_robot_height))
     {
         ROS_ERROR_STREAM("safety_camera.robot_height " << _safety_robot_height
-                         << " is outside [" << stp::ROBOT_HEIGHT_MIN_M
-                         << ", " << stp::ROBOT_HEIGHT_MAX_M
-                         << "] m - no safety table will be written");
+                         << " is outside the firmware-enforced range ["
+                         << stp::ROBOT_HEIGHT_MIN_M << ", " << stp::ROBOT_HEIGHT_MAX_M
+                         << "] m (D580 safety-flash spec) - no safety table will be written");
         return false;
     }
     if (rotation_set && !stp::rotationCsvValid(_safety_rotation))

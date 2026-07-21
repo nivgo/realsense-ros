@@ -99,7 +99,7 @@ configurable_parameters = [{'name': 'camera_name',                  'default': '
                            {'name': 'safety_camera.allow_table_write', 'default': 'false', 'description': "'explicit opt-in required before any safety_camera.* table parameter may modify device flash'"},
                            {'name': 'safety_camera.mount_height',   'default': '-1.', 'description': "'camera mount height above floor in meters (0-2); negative leaves device flash untouched; requires allow_table_write'"},
                            {'name': 'safety_camera.occupancy_cell_size', 'default': '-1.', 'description': "'occupancy grid cell size in meters (0.01-0.5); negative leaves device flash untouched; requires allow_table_write'"},
-                           {'name': 'safety_camera.robot_height',   'default': '-1.', 'description': "'robot height in meters (0-1); negative leaves device flash untouched; requires allow_table_write'"},
+                           {'name': 'safety_camera.robot_height',   'default': '-1.', 'description': "'robot height in meters (firmware-enforced 0.4-1.5); negative leaves device flash untouched; requires allow_table_write'"},
                            {'name': 'safety_camera.rotation',       'default': '', 'description': "'camera rotation as 9 comma-separated row-major matrix values; empty leaves device flash untouched; requires allow_table_write'"},
                            {'name': 'enable_labeled_point_cloud',   'default': 'false', 'description': "'enable labeled point cloud stream'"},
                            {'name': 'depth_mapping_camera.labeled_point_cloud_profile', 'default': '0,0,0', 'description': "'Label PointCloud stream profile'"},

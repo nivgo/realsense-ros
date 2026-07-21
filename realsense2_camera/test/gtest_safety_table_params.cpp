@@ -159,10 +159,13 @@ TEST(SafetyTableParams, CellSizeRange)
 
 TEST(SafetyTableParams, RobotHeightRange)
 {
-    // Firmware obstacle-height range is 0..100 cm, i.e. 0..1 m.
-    EXPECT_TRUE(robotHeightInRange(ROBOT_HEIGHT_MIN_M));
-    EXPECT_TRUE(robotHeightInRange(0.4));
-    EXPECT_TRUE(robotHeightInRange(ROBOT_HEIGHT_MAX_M));
+    // Firmware-enforced deployment range [0.4, 1.5] m (D580 safety flash spec,
+    // delegated to the Safety Constraints Validation Library).
+    EXPECT_TRUE(robotHeightInRange(ROBOT_HEIGHT_MIN_M));  // 0.4, the min
+    EXPECT_TRUE(robotHeightInRange(0.5));
+    EXPECT_TRUE(robotHeightInRange(ROBOT_HEIGHT_MAX_M));  // 1.5, the max
+    EXPECT_FALSE(robotHeightInRange(0.07)); // below min - the value the firmware rejected
+    EXPECT_FALSE(robotHeightInRange(0.3));  // below min (also < camera mount)
     EXPECT_FALSE(robotHeightInRange(ROBOT_HEIGHT_MAX_M + 0.01));
     EXPECT_FALSE(robotHeightInRange(40.0)); // cm passed as m
     EXPECT_FALSE(robotHeightInRange(-0.1));

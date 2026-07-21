@@ -35,17 +35,22 @@ namespace safety_table_params
     constexpr double ROTATION_ORTHONORMAL_EPSILON = 1e-3; // validation tolerance
 
     // Values outside these bounds are configuration mistakes (typically a
-    // unit mix-up) and are rejected before any flash write. Cell size bounds
-    // come from the firmware's accepted grid cell edge of 10..500 mm; the
-    // mount height ceiling is a physical bound for an AMR-mounted camera; the
-    // robot height ceiling mirrors the firmware's obstacle-height range of
-    // 0..100 cm.
+    // unit mix-up) and are rejected before any flash write.
+    //   - cell size: the firmware's accepted grid cell edge of 10..500 mm
+    //     (GRID_CELL_LOWER/UPPER_LIMIT in the safety algorithm).
+    //   - robot height: the firmware-enforced deployment range [0.4, 1.5] m
+    //     from the D580 safety-flash spec, delegated to the Safety Constraints
+    //     Validation Library; a value below 0.4 m is rejected by the device
+    //     with "Value Out Of Range" (this is what bounds it, not the ROS side).
+    //   - mount height: a physical bound for an AMR-mounted camera; the exact
+    //     firmware write-limit is not yet confirmed, so this is deliberately
+    //     loose (catches gross unit mix-ups only).
     constexpr double MOUNT_HEIGHT_MIN_M = 0.0;
     constexpr double MOUNT_HEIGHT_MAX_M = 2.0;
     constexpr double CELL_SIZE_MIN_M = 0.010;
     constexpr double CELL_SIZE_MAX_M = 0.500;
-    constexpr double ROBOT_HEIGHT_MIN_M = 0.0;
-    constexpr double ROBOT_HEIGHT_MAX_M = 1.0;
+    constexpr double ROBOT_HEIGHT_MIN_M = 0.4;
+    constexpr double ROBOT_HEIGHT_MAX_M = 1.5;
 
     // One launch's worth of requested safety-table edits. Each field carries
     // its own "unset" sentinel so callers set only what they mean to change:
