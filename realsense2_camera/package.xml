@@ -50,6 +50,8 @@
   <test_depend condition="$ROS_DISTRO != foxy">ros2topic</test_depend>
   <test_depend condition="$ROS_DISTRO != foxy">ros2bag</test_depend>
   <test_depend condition="$ROS_DISTRO != foxy">rosbag2_storage_default_plugins</test_depend>
+  <test_depend condition="$ROS_DISTRO != foxy">rosbag2_py</test_depend>
+  <test_depend condition="$ROS_DISTRO != foxy">python3-pil</test_depend>
   
   <exec_depend>launch_ros</exec_depend>
   <build_depend>ros_environment</build_depend>
